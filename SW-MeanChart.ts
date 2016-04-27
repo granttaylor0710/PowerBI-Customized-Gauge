@@ -1,6 +1,8 @@
+
+
+
 module powerbi.visuals.samples {
-    
-    interface IBoxWhiskerData {
+    export interface IBoxWhiskerData {
         Label: string;
         Q1: number;
         Median: number;
@@ -16,6 +18,7 @@ module powerbi.visuals.samples {
         OutlierIndexes: number[];
         OutlierObjects?: any[];
     }
+
 
     export interface IBoxWhiskerPlot {
         (): IBoxWhiskerPlot;
@@ -55,6 +58,15 @@ module powerbi.visuals.samples {
         }
     }
 
+    export interface TooltipEvent {
+        data: any;
+        index: number;
+        coordinates: number[];
+        elementCoordinates: number[];
+        context: HTMLElement;
+        isTouchEvent: boolean;
+    }
+
     export class BoxWhiskerData implements IBoxWhiskerData {
         constructor(public Label: string,
             public Q1: number,
@@ -79,99 +91,8 @@ module powerbi.visuals.samples {
         private dataView: DataView;
         private colors: IDataColorPalette;
         private hostService: IVisualHostServices;
-        
-        public static capabilities: VisualCapabilities = {
-            dataRoles: [
-                {
-                    name: 'Category',
-                    kind: VisualDataRoleKind.Grouping,
-                    displayName: data.createDisplayNameGetter('Role_DisplayName_Axis'),
-                    description: data.createDisplayNameGetter('Role_DisplayName_AxisDescription')
-                },
-                {
-                    name: 'Values',
-                    kind: VisualDataRoleKind.GroupingOrMeasure,
-                    displayName: data.createDisplayNameGetter('Role_DisplayName_Value'),
-                    requiredTypes: [{ numeric: true }],
-                },
 
-            ],
-            objects: {
-                general: {
-                    displayName: data.createDisplayNameGetter('Visual_General'),
-                    properties: {
-                        formatString: {
-                            type: { formatting: { formatString: true } },
-                        },
-                    },
-                },
-                box: {
-                    displayName: "Box Options",
-                    properties: {
-                        q1: {
-                            displayName: "1st Quantile",
-                            description: "Default 0.05",
-                            type: { numeric: true },
-                        },
-                        q2: {
-                            displayName: "2nd Quantile",
-                            description: "Default 0.25",
-                            type: { numeric: true }
-
-                        },
-                        q3: {
-                            displayName: "3rd Quantile",
-                            description: "Default 0.75",
-                            type: { numeric: true }
-                        },
-                        q4: {
-                            displayName: "4th Quantile",
-                            description: "Default 0.95",
-                            type: { numeric: true }
-                        },
-                        outlierFactor: {
-                            displayName: "Outlier Multipler",
-                            description: "Highlight IF (val <q1 - OM || val >q3 + OM ) where OM= X * (q2 - q1)",
-                            type: { numeric: true }
-                        },
-                        yTitle: {
-                            displayName: "Y Axis Title",
-                            type: { numeric: false }
-                        }
-                    },
-                },
-            },
-            dataViewMappings: [
-
-                {
-                    conditions: [
-                        { 'Category': { max: 1 }, 'Values': { min: 0 } },
-                    ],
-                    categorical: {
-                        categories: {
-                            for: { in: "Category" },
-                            dataReductionAlgorithm: { top: {} }
-                        },
-                        values: {
-                            group: {
-                                by: 'Series',
-                                select: [{ for: { in: 'Values' } }, { bind: { to: 'Category' } }],
-                            }
-
-                        },
-                        rowCount: { preferred: { min: 2 }, supported: { min: 2 } }
-                    },
-                }
-            ],
-            suppressDefaultTitle: true,
-        };
-        
         private static properties = {
-            dataPoint: {
-                defaultColor: <DataViewObjectPropertyIdentifier>{ objectName: 'dataPoint', propertyName: 'defaultColor' },
-                fill: <DataViewObjectPropertyIdentifier>{ objectName: 'dataPoint', propertyName: 'fill' },
-                showAllDataPoints: <DataViewObjectPropertyIdentifier>{ objectName: 'dataPoint', propertyName: 'showAllDataPoints' },
-            },
             q1: { objectName: 'box', propertyName: 'q1' },
             q2: { objectName: 'box', propertyName: 'q2' },
             q3: { objectName: 'box', propertyName: 'q3' },
@@ -199,6 +120,92 @@ module powerbi.visuals.samples {
             return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhisker.properties.yTitle, "");
         }
 
+    public static capabilities: VisualCapabilities = {
+        dataRoles: [
+            {
+                name: 'Category1',
+                kind: VisualDataRoleKind.Grouping,
+                displayName: data.createDisplayNameGetter('Role_DisplayName_Axis'),
+                description: data.createDisplayNameGetter('Role_DisplayName_AxisDescription')
+            },
+            {
+                name: 'Values',
+                kind: VisualDataRoleKind.GroupingOrMeasure,
+                displayName: data.createDisplayNameGetter('Role_DisplayName_Value'),
+                requiredTypes: [{ numeric: true }],
+            },
+
+        ],
+        objects: {
+            general: {
+                displayName: data.createDisplayNameGetter('Visual_General'),
+                properties: {
+                    formatString: {
+                        type: { formatting: { formatString: true } },
+                    },
+                },
+            },
+            box: {
+                displayName: "Box Options",
+                properties: {
+                    q1: {
+                        displayName: "1st Quantile",
+                        description: "Default 0.05",
+                        type: { numeric: true },
+                    },
+                    q2: {
+                        displayName: "2nd Quantile",
+                        description: "Default 0.25",
+                        type: { numeric: true }
+
+                    },
+                    q3: {
+                        displayName: "3rd Quantile",
+                        description: "Default 0.75",
+                        type: { numeric: true }
+                    },
+                    q4: {
+                        displayName: "4th Quantile",
+                        description: "Default 0.95",
+                        type: { numeric: true }
+                    },
+                    outlierFactor: {
+                        displayName: "Outlier Multipler",
+                        description: "Highlight IF (val <q1 - OM || val >q3 + OM ) where OM= X * (q2 - q1)",
+                        type: { numeric: true }
+                    },
+                    yTitle: {
+                        displayName: "Y Axis Title",
+                        type: { numeric: false }
+                    }
+                },
+            },
+        },
+        dataViewMappings: [
+
+            {
+                conditions: [
+                    { 'Category': { max: 1 }, 'Values': { min: 0 } },
+                ],
+                categorical: {
+                    categories: {
+                        for: { in: "Category" },
+                        dataReductionAlgorithm: { top: {} }
+                    },
+                    values: {
+                        group: {
+                            by: 'Series',
+                            select: [{ for: { in: 'Values' } }, { bind: { to: 'Category' } }],
+                        }
+
+                    },
+                    rowCount: { preferred: { min: 2 }, supported: { min: 2 } }
+                },
+            }
+        ],
+        suppressDefaultTitle: true,
+    };
+    
         public init(options: VisualInitOptions) {
             this.root = d3.select(options.element.get(0));
             this.colors = options.style.colorPalette.dataColors;
@@ -418,15 +425,15 @@ module powerbi.visuals.samples {
             var topLen = scaleData["boxRange"][1].toString.length * 20; // how many chars in the longest val
             var minWidth = (100 + topLen) * pData.length;
             var w = Math.max(minWidth, viewport.width - margin.left - margin.right);
-
-            // var chart = d3.box()
-            //     .height(h)
-            //     .width(w)
-            //     .domain(scaleData["boxDomain"])
-            //     .range(scaleData["boxRange"])
-            //     .showLabels(labels)
-            //     .showDataPoints(dataPoints)
-            //     .tickFormat(formatter.format);
+            //d3 box chart
+            var chart = d3.box()
+                .height(h)
+                .width(w)
+                .domain(scaleData["boxDomain"])
+                .range(scaleData["boxRange"])
+                .showLabels(labels)
+                .showDataPoints(dataPoints)
+                .tickFormat(formatter.format);
 
             //d3.select(appendTo.parentNode).attr("class", "boxWhisker visual ng-isolate-scope");
             if (d3.select(appendTo.parentNode).attr("class").indexOf("boxWhiskerScroll") < 0) {
@@ -463,7 +470,7 @@ module powerbi.visuals.samples {
                 .orient("left")
                 .tickFormat(formatter.format);
 
-            //this.timer = setInterval(function () {
+            this.timer = setInterval(function () {
                 // draw the boxplots
                 svg.selectAll(".box")
                     .data(pdata)
@@ -473,9 +480,9 @@ module powerbi.visuals.samples {
                     })
                     .attr("data", function (d) {
                         return d.Label;
-                    });
-                    // .call(chart.width(xaxisScale.rangeBand()));
-            //}, 500);
+                    })
+                    .call(chart.width(xaxisScale.rangeBand()));
+            }, 500);
 
             //// draw the boxplots
             //svg.selectAll(".box")
@@ -564,11 +571,11 @@ module powerbi.visuals.samples {
             // Add Power BI tooltip info   
             TooltipManager.addTooltip(whiskerTick, (tooltipEvent: TooltipEvent) => {
                 var quartileString = '';
-                // if (tooltipEvent.index % 2 === 0) {
+                if (tooltipEvent.index % 2 === 0) {
                     quartileString = addOrd(lowWhiskerQuantile * 100);
-                // } else {
-                //     quartileString = addOrd(highWhiskerQuantile * 100);
-                // }
+                } else {
+                    quartileString = addOrd(highWhiskerQuantile * 100);
+                }
                 return [
                     {
                         displayName: quartileString + " quantile",
@@ -582,11 +589,11 @@ module powerbi.visuals.samples {
             // Add Power BI tooltip info   
             TooltipManager.addTooltip(whiskerTick, (tooltipEvent: TooltipEvent) => {
                 var quartileString = '';
-                // if (tooltipEvent.index % 2 === 0) {
+                if (tooltipEvent.index % 2 === 0) {
                     quartileString = addOrd(lowWhiskerQuantile * 100);
-                // } else {
-                //     quartileString = addOrd(highWhiskerQuantile * 100);
-                // }
+                } else {
+                    quartileString = addOrd(highWhiskerQuantile * 100);
+                }
                 return [
                     {
                         displayName: quartileString + " quantile",
@@ -629,7 +636,7 @@ module powerbi.visuals.samples {
                     .attr("x2", w)
                     .attr("y2", y(plotData.Goal));
             }
-            // chart.duration(1000);
+            chart.duration(1000);
         }
 
         /**
@@ -715,5 +722,11 @@ module powerbi.visuals.samples {
             return instances;
         }
 
+    }
+}
+
+declare module D3 {
+    interface Base {
+        box: powerbi.visuals.samples.IBoxWhiskerPlot;
     }
 }
