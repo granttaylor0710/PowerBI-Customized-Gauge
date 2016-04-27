@@ -1,77 +1,4 @@
-module powerbi.visuals {
-    export interface IBoxWhiskerData {
-        Label: string;
-        Q1: number;
-        Median: number;
-        Q3: number;
-        Minimum: number;
-        Maximum: number;
-        Mean: number;
-        LowWhisker: number;
-        HighWhisker: number;
-        NumDataPoints: number;
-        Points: number[];
-        Outliers: number[];
-        OutlierIndexes: number[];
-        OutlierObjects?: any[];
-    }
-
-    export interface IBoxWhiskerPlot {
-        (): IBoxWhiskerPlot;
-        width(): number;
-        width(width: number): IBoxWhiskerPlot;
-        height(): number;
-        height(height: number): IBoxWhiskerPlot;
-        duration(): number;
-        duration(duration: number): IBoxWhiskerPlot;
-        domain(): number[];
-        domain(dom: number[]): IBoxWhiskerPlot;
-        range(): number[];
-        range(range: number[]): IBoxWhiskerPlot;
-        showLabels(): boolean;
-        showLabels(show: boolean): IBoxWhiskerPlot;
-        showDataPoints(): boolean;
-        showDataPoints(show: boolean): IBoxWhiskerPlot;
-        tickFormat(): (any) => string;
-        tickFormat(formatter: (value: any) => string): IBoxWhiskerPlot;
-        whiskers(computeWhiskers: (data: IBoxWhiskerData, index: number) => number[]): IBoxWhiskerPlot;
-    }
-    
-    export interface IBoxWhiskerPlotData {
-        Title: string;
-        XAxisTitle: string;
-        YAxisTitle: string;
-        PlotData: IBoxWhiskerData[];
-        Goal?: number;
-    }
-
-    export class BoxWhiskerPlotData implements IBoxWhiskerPlotData {
-        constructor(public Title: string,
-            public XAxisTitle: string,
-            public YAxisTitle: string,
-            public PlotData: IBoxWhiskerData[],
-            public Goal?: number) {
-        }
-    }
-
-    export class BoxWhiskerData implements IBoxWhiskerData {
-        constructor(public Label: string,
-            public Q1: number,
-            public Median: number,
-            public Q3: number,
-            public Minimum: number,
-            public Maximum: number,
-            public Mean: number,
-            public LowWhisker: number,
-            public HighWhisker: number,
-            public NumDataPoints: number,
-            public Points: number[],
-            public Outliers: number[],
-            public OutlierIndexes: number[],
-            public OutlierObjects?: any[]) {
-        }
-    }
-
+module powerbi.visuals.samples {
     export class BoxWhisker implements IVisual {
 
         private root: D3.Selection;
@@ -107,91 +34,91 @@ module powerbi.visuals {
             return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhisker.properties.yTitle, "");
         }
 
-    public static capabilities: VisualCapabilities = {
-        dataRoles: [
-            {
-                name: 'Category',
-                kind: VisualDataRoleKind.Grouping,
-                displayName: data.createDisplayNameGetter('Role_DisplayName_Axis'),
-                description: data.createDisplayNameGetter('Role_DisplayName_AxisDescription')
-            },
-            {
-                name: 'Values',
-                kind: VisualDataRoleKind.GroupingOrMeasure,
-                displayName: data.createDisplayNameGetter('Role_DisplayName_Value'),
-                requiredTypes: [{ numeric: true }],
-            },
+        public static capabilities: VisualCapabilities = {
+            dataRoles: [
+                {
+                    name: 'Category',
+                    kind: VisualDataRoleKind.Grouping,
+                    displayName: data.createDisplayNameGetter('Role_DisplayName_Axis'),
+                    description: data.createDisplayNameGetter('Role_DisplayName_AxisDescription')
+                },
+                {
+                    name: 'Values',
+                    kind: VisualDataRoleKind.GroupingOrMeasure,
+                    displayName: data.createDisplayNameGetter('Role_DisplayName_Value'),
+                    requiredTypes: [{ numeric: true }],
+                },
 
-        ],
-        objects: {
-            general: {
-                displayName: data.createDisplayNameGetter('Visual_General'),
-                properties: {
-                    formatString: {
-                        type: { formatting: { formatString: true } },
+            ],
+            objects: {
+                general: {
+                    displayName: data.createDisplayNameGetter('Visual_General'),
+                    properties: {
+                        formatString: {
+                            type: { formatting: { formatString: true } },
+                        },
                     },
                 },
-            },
-            box: {
-                displayName: "Box Options",
-                properties: {
-                    q1: {
-                        displayName: "1st Quantile",
-                        description: "Default 0.05",
-                        type: { numeric: true },
-                    },
-                    q2: {
-                        displayName: "2nd Quantile",
-                        description: "Default 0.25",
-                        type: { numeric: true }
+                box: {
+                    displayName: "Box Options",
+                    properties: {
+                        q1: {
+                            displayName: "1st Quantile",
+                            description: "Default 0.05",
+                            type: { numeric: true },
+                        },
+                        q2: {
+                            displayName: "2nd Quantile",
+                            description: "Default 0.25",
+                            type: { numeric: true }
 
-                    },
-                    q3: {
-                        displayName: "3rd Quantile",
-                        description: "Default 0.75",
-                        type: { numeric: true }
-                    },
-                    q4: {
-                        displayName: "4th Quantile",
-                        description: "Default 0.95",
-                        type: { numeric: true }
-                    },
-                    outlierFactor: {
-                        displayName: "Outlier Multipler",
-                        description: "Highlight IF (val <q1 - OM || val >q3 + OM ) where OM= X * (q2 - q1)",
-                        type: { numeric: true }
-                    },
-                    yTitle: {
-                        displayName: "Y Axis Title",
-                        type: { numeric: false }
-                    }
-                },
-            },
-        },
-        dataViewMappings: [
-
-            {
-                conditions: [
-                    { 'Category': { max: 1 }, 'Values': { min: 0 } },
-                ],
-                categorical: {
-                    categories: {
-                        for: { in: "Category" },
-                        dataReductionAlgorithm: { top: {} }
-                    },
-                    values: {
-                        group: {
-                            by: 'Series',
-                            select: [{ for: { in: 'Values' } }, { bind: { to: 'Category' } }],
+                        },
+                        q3: {
+                            displayName: "3rd Quantile",
+                            description: "Default 0.75",
+                            type: { numeric: true }
+                        },
+                        q4: {
+                            displayName: "4th Quantile",
+                            description: "Default 0.95",
+                            type: { numeric: true }
+                        },
+                        outlierFactor: {
+                            displayName: "Outlier Multipler",
+                            description: "Highlight IF (val <q1 - OM || val >q3 + OM ) where OM= X * (q2 - q1)",
+                            type: { numeric: true }
+                        },
+                        yTitle: {
+                            displayName: "Y Axis Title",
+                            type: { numeric: false }
                         }
-
                     },
-                    rowCount: { preferred: { min: 2 }, supported: { min: 2 } }
                 },
-            }
-        ],
-        suppressDefaultTitle: true,
-    };
+            },
+            dataViewMappings: [
+
+                {
+                    conditions: [
+                        { 'Category': { max: 1 }, 'Values': { min: 0 } },
+                    ],
+                    categorical: {
+                        categories: {
+                            for: { in: "Category" },
+                            dataReductionAlgorithm: { top: {} }
+                        },
+                        values: {
+                            group: {
+                                by: 'Series',
+                                select: [{ for: { in: 'Values' } }, { bind: { to: 'Category' } }],
+                            }
+
+                        },
+                        rowCount: { preferred: { min: 2 }, supported: { min: 2 } }
+                    },
+                }
+            ],
+            suppressDefaultTitle: true,
+        };
 
         public init(options: VisualInitOptions) {
             this.root = d3.select(options.element.get(0));
@@ -266,7 +193,7 @@ module powerbi.visuals {
                 || q2quantile < 0 || q2quantile > 1 || q2quantile > highWhiskerQuantile
                 || highWhiskerQuantile < 0 || highWhiskerQuantile > 1
                 || highWhiskerQuantile < 0 || highWhiskerQuantile > 1
-            ) {
+                ) {
                 var visualMessage: IVisualErrorMessage = {
                     message: 'Quantiles need to be between 0 and 1 and in increasing order from 1st to 4th',
                     title: 'Invalid Quantile Multiplier',
@@ -459,16 +386,16 @@ module powerbi.visuals {
                 .data(pdata)
                 .enter().append("g")
                 .attr("transform", function (d) {
-                    return "translate(" + xaxisScale(d.Label) + "," + margin.top + ")";
-                })
+                return "translate(" + xaxisScale(d.Label) + "," + margin.top + ")";
+            })
                 .attr("data", function (d) {
-                    return d.Label;
-                })
+                return d.Label;
+            })
                 .call(chart.width(xaxisScale.rangeBand()));
 
             var outliers = svg.selectAll("circle.outlier");
             // Add Power BI tooltip info   
-            TooltipManager.addTooltip(outliers, (tooltipEvent: TooltipEvent) => {
+            TooltipManager.addTooltip(outliers,(tooltipEvent: TooltipEvent) => {
                 var displayName = tooltipEvent.context.parentNode.attributes["data"].value;
                 return [
                     {
@@ -480,7 +407,7 @@ module powerbi.visuals {
 
             var datapoints = svg.selectAll("circle.datapoint");
             // Add Power BI tooltip info   
-            TooltipManager.addTooltip(datapoints, (tooltipEvent: TooltipEvent) => {
+            TooltipManager.addTooltip(datapoints,(tooltipEvent: TooltipEvent) => {
                 var displayName = tooltipEvent.context.parentNode.attributes["data"].value;
                 return [
                     {
@@ -497,7 +424,7 @@ module powerbi.visuals {
             }
 
             var box = svg.selectAll("rect.box");
-            TooltipManager.addTooltip(box, (tooltipEvent: TooltipEvent) => {
+            TooltipManager.addTooltip(box,(tooltipEvent: TooltipEvent) => {
 
                 return [
                     {
@@ -524,7 +451,7 @@ module powerbi.visuals {
             //     return txt;
             // }));
             // Add Power BI tooltip info   
-            TooltipManager.addTooltip(meanPoint, (tooltipEvent: TooltipEvent) => {
+            TooltipManager.addTooltip(meanPoint,(tooltipEvent: TooltipEvent) => {
                 return [
                     {
                         displayName: 'Mean',
@@ -537,7 +464,7 @@ module powerbi.visuals {
             
             
             // Add Power BI tooltip info   
-            TooltipManager.addTooltip(whiskerTick, (tooltipEvent: TooltipEvent) => {
+            TooltipManager.addTooltip(whiskerTick,(tooltipEvent: TooltipEvent) => {
                 var quartileString = '';
                 if (tooltipEvent.index % 2 === 0) {
                     quartileString = addOrd(lowWhiskerQuantile * 100);
@@ -555,7 +482,7 @@ module powerbi.visuals {
             var whiskerTick = svg.selectAll("line.whisker");
           
             // Add Power BI tooltip info   
-            TooltipManager.addTooltip(whiskerTick, (tooltipEvent: TooltipEvent) => {
+            TooltipManager.addTooltip(whiskerTick,(tooltipEvent: TooltipEvent) => {
                 var quartileString = '';
                 if (tooltipEvent.index % 2 === 0) {
                     quartileString = addOrd(lowWhiskerQuantile * 100);
@@ -591,8 +518,8 @@ module powerbi.visuals {
                 .selectAll("text")
                 .style("text-anchor", "middle")
                 .attr("transform", function (d) {
-                    //return "rotate(45)";
-                });
+                //return "rotate(45)";
+            });
 
             // draw goal line if goal is set
             if (plotData.Goal && plotData.Goal !== 0) {
@@ -691,7 +618,7 @@ module powerbi.visuals {
         }
 
     }
-	
+
     interface TooltipEvent {
         data: any;
         index: number;
@@ -701,13 +628,29 @@ module powerbi.visuals {
         isTouchEvent: boolean;
     }
 
-
 }
 
 declare module D3 {
     export interface Base {
         box: IBoxWhiskerPlot;
     }
+}
+
+interface IBoxWhiskerData {
+    Label: string;
+    Q1: number;
+    Median: number;
+    Q3: number;
+    Minimum: number;
+    Maximum: number;
+    Mean: number;
+    LowWhisker: number;
+    HighWhisker: number;
+    NumDataPoints: number;
+    Points: number[];
+    Outliers: number[];
+    OutlierIndexes: number[];
+    OutlierObjects?: any[];
 }
 
 interface IBoxWhiskerPlot {
@@ -731,19 +674,37 @@ interface IBoxWhiskerPlot {
     whiskers(computeWhiskers: (data: IBoxWhiskerData, index: number) => number[]): IBoxWhiskerPlot;
 }
 
-interface IBoxWhiskerData {
-    Label: string;
-    Q1: number;
-    Median: number;
-    Q3: number;
-    Minimum: number;
-    Maximum: number;
-    Mean: number;
-    LowWhisker: number;
-    HighWhisker: number;
-    NumDataPoints: number;
-    Points: number[];
-    Outliers: number[];
-    OutlierIndexes: number[];
-    OutlierObjects?: any[];
+interface IBoxWhiskerPlotData {
+    Title: string;
+    XAxisTitle: string;
+    YAxisTitle: string;
+    PlotData: IBoxWhiskerData[];
+    Goal?: number;
+}
+
+class BoxWhiskerPlotData implements IBoxWhiskerPlotData {
+    constructor(public Title: string,
+        public XAxisTitle: string,
+        public YAxisTitle: string,
+        public PlotData: IBoxWhiskerData[],
+        public Goal?: number) {
+    }
+}
+
+class BoxWhiskerData implements IBoxWhiskerData {
+    constructor(public Label: string,
+        public Q1: number,
+        public Median: number,
+        public Q3: number,
+        public Minimum: number,
+        public Maximum: number,
+        public Mean: number,
+        public LowWhisker: number,
+        public HighWhisker: number,
+        public NumDataPoints: number,
+        public Points: number[],
+        public Outliers: number[],
+        public OutlierIndexes: number[],
+        public OutlierObjects?: any[]) {
+    }
 }
