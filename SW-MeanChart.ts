@@ -1,90 +1,505 @@
+
+interface IBoxWhiskerData {
+    Label: string;
+    Q1: number;
+    Median: number;
+    Q3: number;
+    Minimum: number;
+    Maximum: number;
+    Mean: number;
+    LowWhisker: number;
+    HighWhisker: number;
+    NumDataPoints: number;
+    Points: number[];
+    Outliers: number[];
+    OutlierIndexes: number[];
+    OutlierObjects?: any[];
+}
+
+interface IBoxWhiskerPlot {
+    (): IBoxWhiskerPlot;
+    width(): number;
+    width(width: number): IBoxWhiskerPlot;
+    height(): number;
+    height(height: number): IBoxWhiskerPlot;
+    duration(): number;
+    duration(duration: number): IBoxWhiskerPlot;
+    domain(): number[];
+    domain(dom: number[]): IBoxWhiskerPlot;
+    range(): number[];
+    range(range: number[]): IBoxWhiskerPlot;
+    showLabels(): boolean;
+    showLabels(show: boolean): IBoxWhiskerPlot;
+    showDataPoints(): boolean;
+    showDataPoints(show: boolean): IBoxWhiskerPlot;
+    tickFormat(): (any) => string;
+    tickFormat(formatter: (value: any) => string): IBoxWhiskerPlot;
+    whiskers(computeWhiskers: (data: IBoxWhiskerData, index: number) => number[]): IBoxWhiskerPlot;
+}
+
+declare module D3 {
+    export interface Base {
+        box: IBoxWhiskerPlot;
+    }
+}
+
+// Inspired by http://informationandvisualization.de/blog/box-plot
+d3.box = function () {
+    var width = 1,
+        height = 1,
+        duration = 0,
+        domain = null,
+        range = null,
+        value = Number,
+        whiskers = boxWhiskers,
+        quartiles = boxQuartiles,
+        showLabels = true, // whether or not to show text labels
+        showDataPoints = true, //whether or not to show data points
+        numBars = 4,
+        curBar = 1,
+        tickFormat = "0";
+
+    // For each small multiple¡¬
+    function box(g) {
+        g.each(function (data, i) {
+
+            // each data entry is now a type with the following properties
+            var d = data.Points;
+
+            var g = d3.select(this),
+                n = data.ComputeFromPoints ? data.Points.length : data.NumDataPoints,
+                min = data.Minimum,
+                max = data.Maximum;
+
+            // Compute mean. Must return exactly 1 element.
+            var meanData;
+            var whiskerData, outlierData;
+            var quartileData;
+
+            if (data.ComputeFromPoints) {
+                d = data.Points = data.Points.sort(d3.ascending);
+                meanData = mean(d);
+                quartileData = quartiles(d);
+                data.Q1 = quartileData[0];
+                data.Median = quartileData[1];
+                data.Q3 = quartileData[2];
+                data.LowWhisker = d3.quantile(data.Points, 0.05);
+                data.HighWhisker = d3.quantile(data.Points, 0.95);
+                data.Mean = meanData;
+
+                // Compute whiskers. Must return exactly 2 elements, or null.
+                var whiskerIndices = whiskers && whiskers.call(this, data, i);
+                whiskerData = whiskerIndices && whiskerIndices.map(function (i) { return d[i]; });
+
+                // Compute outliers. If no whiskers are specified, all data are "outliers".
+                // We compute the outliers as indices, so that we can join across transitions!
+                var outlierIndices = whiskerIndices
+                    ? d3.range(0, whiskerIndices[0]).concat(d3.range(whiskerIndices[1] + 1, n))
+                    : d3.range(n);
+                outlierData = outlierIndices.map(function (i) { return d[i]; });
+            }
+            else {
+                quartileData = [data.Q1, data.Median, data.Q3];
+                whiskerData = [data.LowWhisker, data.HighWhisker];
+                outlierData = data.Outliers;
+                meanData = data.Mean;
+            }
+
+            // Compute the new x-scale.
+            var x1 = d3.scale.linear()
+                .domain(domain && domain.call(this, d, i) || [min, max])
+                .range(range && range.call(this, d, i) || [height, 0]);
+
+            // Note: the box, median, and box tick elements are fixed in number,
+            // so we only have to handle enter and update. In contrast, the outliers
+            // and other elements are variable, so we need to exit them! Variable
+            // elements also fade in and out.
+
+            // Update center line: the vertical line spanning the whiskers.
+            var center = g.selectAll("line.center")
+                .data(whiskerData ? [whiskerData] : []);
+
+            //vertical line
+            center.enter().insert("line", "rect")
+                .attr("class", "center")
+                .attr("x1", width / 2)
+                .attr("x2", width / 2)
+                .attr("y1", function (d) { return x1(d[0]); })
+                .attr("y2", function (d) { return x1(d[1]); });
+
+            center.exit().transition()
+                .duration(duration)
+                .style("opacity", 1e-6)
+                .attr("y1", function (d) { return x1(d[0]); })
+                .attr("y2", function (d) { return x1(d[1]); })
+                .remove();
+
+            // Update innerquartile box.
+            var box = g.selectAll("rect.box")
+                .data([quartileData]);
+
+            box.enter().append("rect")
+                .attr("class", "box")
+                .attr("x", 0)
+                .attr("width", width)
+                .attr("y", function (d) { return x1(d[2]); })
+                .attr("height", function (d) { return x1(d[0]) - x1(d[2]); });
+
+            // Update median line.
+            var medianLine = g.selectAll("line.median")
+                .data([quartileData[1]]);
+
+            medianLine.enter().append("line")
+                .attr("class", "median")
+                .attr("x1", 0)
+                .attr("x2", width)
+                .attr("y1", x1)
+                .attr("y2", x1);
+
+            // Update mean.
+            var meanPoint = g.selectAll("circle")
+                .data([meanData], Number);
+
+            meanPoint.enter().insert("circle", "text")
+                .attr("class", "mean")
+                .attr("r", 4)
+                .attr("cx", width * 3 / 4)
+                .attr("cy", function (i) { return x1(meanData); })
+                .text(format)
+
+            meanPoint.exit().transition()
+                .duration(duration)
+                .attr("cy", function (i) { return x1(meanData); })
+                .remove();
+
+            // Update whiskers.
+            var whisker = g.selectAll("line.whisker")
+                .data(whiskerData || []);
+
+            whisker.enter().insert("line", "circle, text")
+                .attr("class", "whisker")
+                .attr("x1", 0)
+                .attr("x2", 0 + width)
+                .attr("y1", x1)
+                .attr("y2", x1);
+
+            whisker.exit().transition()
+                .duration(duration)
+                .attr("y1", x1)
+                .attr("y2", x1)
+                .remove();
+
+            // Update outliers.
+            var outlier = g.selectAll("circle.outlier")
+                .data(outlierData, Number);
+
+            outlier.enter().insert("circle", "text")
+                .attr("class", "outlier")
+                .attr("r", 3)
+                .attr("cx", width / 2)
+                .attr("cy", function (i) { return x1(i); });
+
+            outlier.exit().transition()
+                .duration(duration)
+                .attr("cy", function (i) { return x1(i); })
+                .remove();
+
+            if (showDataPoints == true) {
+                var nonOutliers = d3.set(d);
+                outlierData.forEach(function (i) { nonOutliers.remove(i); });
+                var dataPlot = g.selectAll("circle.datapoint")
+                    .data(nonOutliers.values(), Number);
+
+                dataPlot.enter().insert("circle", "text")
+                    .attr("class", "datapoint")
+                    .attr("r", 3)
+                    .attr("cx", width / 2)
+                    .attr("cy", function (i) { return x1(i); });
+
+                dataPlot.exit().transition()
+                    .duration(duration)
+                    .attr("cy", function (i) { return x1(i); })
+                    .remove();
+            }
+
+            // Compute the tick format.
+            var format = tickFormat;
+
+            // Update box ticks.
+            var boxTick = g.selectAll("text.box")
+                .data(quartileData);
+            if (showLabels == true) {
+                boxTick.enter().append("text")
+                    .attr("class", "box")
+                    .attr("dy", ".3em")
+                    .attr("dx", function (d, i) { return i & 1 ? 6 : -6 })
+                    .attr("x", function (d, i) { return i & 1 ? +width : 0 })
+                    .attr("y", x1)
+                    .attr("text-anchor", function (d, i) { return i & 1 ? "start" : "end"; })
+                    .text(format);
+            }
+
+            boxTick.transition()
+                .duration(duration)
+                .text(format)
+                .attr("y", x1);
+
+            // Update whisker ticks. These are handled separately from the box
+            // ticks because they may or may not exist, and we want don't want
+            // to join box ticks pre-transition with whisker ticks post-.
+            var whiskerTick = g.selectAll("text.whisker")
+                .data(whiskerData || []);
+
+
+            if (showLabels == true) {
+                whiskerTick.enter().append("text")
+                    .attr("class", "whisker")
+                    .attr("dy", ".3em")
+                    .attr("dx", 6)
+                    .attr("x", width)
+                    .text(format)
+                    .attr("y", x1)
+                    .style("opacity", 1);
+            }
+
+            whiskerTick.exit().transition()
+                .duration(duration)
+                .attr("y", x1)
+
+                .style("opacity", 1e-6)
+                .remove();
+        });
+        d3.timer.flush();
+    }
+
+    box.width = function (x) {
+        if (!arguments.length) return width;
+        width = x;
+        return box;
+    };
+
+    box.height = function (x) {
+        if (!arguments.length) return height;
+        height = x;
+        return box;
+    };
+
+    box.tickFormat = function (x) {
+        if (!arguments.length) return tickFormat;
+        tickFormat = x;
+        return box;
+    };
+
+    box.duration = function (x) {
+        if (!arguments.length) return duration;
+        duration = x;
+        return box;
+    };
+
+    box.domain = function (x) {
+        if (!arguments.length) return domain;
+        domain = x == null ? x : d3.functor(x);
+        return box;
+    };
+
+    box.range = function (x) {
+        if (!arguments.length) return range;
+        range = x == null ? x : d3.functor(x);
+        return box;
+    }
+
+    box.value = function (x) {
+        if (!arguments.length) return value;
+        value = x;
+        return box;
+    };
+
+    box.whiskers = function (x) {
+        if (!arguments.length) return whiskers;
+        whiskers = x;
+        return box;
+    };
+
+    box.showLabels = function (x) {
+        if (!arguments.length) return showLabels;
+        showLabels = x;
+        return box;
+    };
+
+    box.showDataPoints = function (x) {
+        if (!arguments.length) return showDataPoints;
+        showDataPoints = x;
+        return box;
+    };
+
+    box.quartiles = function (x) {
+        if (!arguments.length) return quartiles;
+        quartiles = x;
+        return box;
+    };
+
+    box.mean = function (x) {
+        if (!arguments.length) return mean;
+        mean = x;
+        return box;
+    };
+
+    return box;
+};
+
+function mean(d) {
+    return d3.mean(d);
+}
+
+function boxWhiskers(d) {
+    return [0, d.length - 1];
+}
+
+function boxQuartiles(d) {
+    return [
+        d3.quantile(d, .25),
+        d3.quantile(d, .5),
+        d3.quantile(d, .75)
+    ];
+}
+
+
 module powerbi.visuals {
-    import SelectionManager = utility.SelectionManager;
-    import ClassAndSelector = jsCommon.CssConstants.ClassAndSelector;
-
-    export interface BoxWhiskerChartConstructorOptions {
-        svg?: D3.Selection;
-        margin?: IMargin;
+    export interface IBoxWhiskerData {
+        Label: string;
+        Q1: number;
+        Median: number;
+        Q3: number;
+        Minimum: number;
+        Maximum: number;
+        Mean: number;
+        LowWhisker: number;
+        HighWhisker: number;
+        NumDataPoints: number;
+        Points: number[];
+        Outliers: number[];
+        OutlierIndexes: number[];
+        OutlierObjects?: any[];
     }
 
-    export interface BoxWhiskerChartDatapoint {
-        min: number;
-        max: number;
-        median: number;
-        quartile1: number;
-        quartile3: number;
-        average: number;
-        samples: number;
-        category: number;
-        color?: string;
-        label?: string;
-        outliers: number[];
-        dataLabels: BoxWhiskerDataLabel[];
-        identity: SelectionId;
-        tooltipInfo?: TooltipDataItem[];
+    export interface IBoxWhiskerPlot {
+        (): IBoxWhiskerPlot;
+        width(): number;
+        width(width: number): IBoxWhiskerPlot;
+        height(): number;
+        height(height: number): IBoxWhiskerPlot;
+        duration(): number;
+        duration(duration: number): IBoxWhiskerPlot;
+        domain(): number[];
+        domain(dom: number[]): IBoxWhiskerPlot;
+        range(): number[];
+        range(range: number[]): IBoxWhiskerPlot;
+        showLabels(): boolean;
+        showLabels(show: boolean): IBoxWhiskerPlot;
+        showDataPoints(): boolean;
+        showDataPoints(show: boolean): IBoxWhiskerPlot;
+        tickFormat(): (any) => string;
+        tickFormat(formatter: (value: any) => string): IBoxWhiskerPlot;
+        whiskers(computeWhiskers: (data: IBoxWhiskerData, index: number) => number[]): IBoxWhiskerPlot;
     }
 
-    export interface BoxWhiskerChartData {
-        dataPoints: BoxWhiskerChartDatapoint[][];
-        legendData: LegendData;
+    export interface IBoxWhiskerPlotData {
+        Title: string;
+        XAxisTitle: string;
+        YAxisTitle: string;
+        PlotData: IBoxWhiskerData[];
+        Goal?: number;
     }
 
-    export interface BoxWhiskerDataLabel {
-        value: number;
-        y: number;
-        x: number;
-    }
-
-    export interface BoxWhiskerAxisOptions {
-        max: number;
-        min: number;
-        ticks: number;
-        tickSize: number;
-    }
-
-    export module BoxWhiskerTypeOptions {
-        export enum ChartType {
-            MinMax,
-            Standard,
-            IQR
+    export class BoxWhiskerPlotData implements IBoxWhiskerPlotData {
+        constructor(public Title: string,
+            public XAxisTitle: string,
+            public YAxisTitle: string,
+            public PlotData: IBoxWhiskerData[],
+            public Goal?: number) {
         }
     }
 
-    export class BoxWhiskerChart implements IVisual {
+    export class BoxWhiskerData implements IBoxWhiskerData {
+        constructor(public Label: string,
+            public Q1: number,
+            public Median: number,
+            public Q3: number,
+            public Minimum: number,
+            public Maximum: number,
+            public Mean: number,
+            public LowWhisker: number,
+            public HighWhisker: number,
+            public NumDataPoints: number,
+            public Points: number[],
+            public Outliers: number[],
+            public OutlierIndexes: number[],
+            public OutlierObjects?: any[]) {
+        }
+    }
+
+
+    export class BoxWhisker implements IVisual {
+
+        private root: D3.Selection;
+        private dataView: DataView;
+        private colors: IDataColorPalette;
+        private hostService: IVisualHostServices;
+        private currentTimeBucket: number;
+        
+        private static properties = {
+            q1: { objectName: 'box', propertyName: 'q1' },
+            q2: { objectName: 'box', propertyName: 'q2' },
+            q3: { objectName: 'box', propertyName: 'q3' },
+            q4: { objectName: 'box', propertyName: 'q4' },
+            outlierFactor: { objectName: 'box', propertyName: 'outlierFactor' },
+            yTitle: { objectName: 'box', propertyName: 'yTitle' },
+            timeBucket: { objectName: "series", propertyName: "timebucket" }
+        };
+
+        public getTimeBucket(dataView: DataView): number {
+            return DataViewObjects.getValue(this.dataView.metadata.objects, BoxWhisker.properties.timeBucket, 60);
+        }
+
+        private getQ1(dataView: DataView): number {
+            return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhisker.properties.q1, 0.05);
+        }
+        private getQ2(dataView: DataView): number {
+            return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhisker.properties.q2, 0.25);
+        }
+        private getQ3(dataView: DataView): number {
+            return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhisker.properties.q3, 0.75);
+        }
+        private getQ4(dataView: DataView): number {
+            return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhisker.properties.q4, 0.95);
+        }
+        private getOutlierFactor(dataView: DataView): number {
+            return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhisker.properties.outlierFactor, 0);
+        }
+        private getYTitle(dataView: DataView): string {
+            return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhisker.properties.yTitle, "");
+        }
+
         public static capabilities: VisualCapabilities = {
             dataRoles: [
                 {
-                    name: 'Groups',
-                    kind: powerbi.VisualDataRoleKind.Grouping,
-                    displayName: 'Groups'
-                },
-                {
-                    name: 'Samples',
-                    kind: powerbi.VisualDataRoleKind.Grouping,
-                    displayName: 'Samples'
+                    name: 'Category',
+                    kind: VisualDataRoleKind.Grouping,
+                    displayName: data.createDisplayNameGetter('Role_DisplayName_Axis'),
+                    description: data.createDisplayNameGetter('Role_DisplayName_AxisDescription')
                 },
                 {
                     name: 'Values',
-                    kind: powerbi.VisualDataRoleKind.Measure,
-                    displayName: 'Values'
+                    kind: VisualDataRoleKind.Measure,
+                    displayName: data.createDisplayNameGetter('Role_DisplayName_Value'),
+                    requiredTypes: [{ numeric: true }],
+                },
+                {
+                    name: 'Series',
+                    kind: powerbi.VisualDataRoleKind.Grouping,
+                    displayName: 'Series'
                 },
             ],
-            dataViewMappings: [{
-                conditions: [
-                    { 'Groups': { max: 1 }, 'Values': { min: 0, max: 1 } }
-                ],
-                categorical: {
-                    categories: {
-                        for: { in: 'Samples' }
-                    },
-                    values: {
-                        group: {
-                            by: 'Groups',
-                            select: [{ for: { in: 'Values' } }]
-                        }
-                    }
-                }
-            }],
             objects: {
                 general: {
                     displayName: data.createDisplayNameGetter('Visual_General'),
@@ -94,947 +509,627 @@ module powerbi.visuals {
                         },
                     },
                 },
-                chartOptions: {
-                    displayName: "Chart Options",
+                box: {
+                    displayName: "Box Options",
                     properties: {
-                        whisker: {
-                            displayName: "Chart type",
-                            description: "Determines the type of box and whisker chart",
-                            type: {
-                                enumeration: createEnumType([
-                                    { value: BoxWhiskerTypeOptions.ChartType.MinMax, displayName: "Min/Max" },
-                                    { value: BoxWhiskerTypeOptions.ChartType.Standard, displayName: "Tukey" },
-                                    { value: BoxWhiskerTypeOptions.ChartType.IQR, displayName: "1.5 IQR" }
-                                ])
+                        q1: {
+                            displayName: "1st Quantile",
+                            description: "Default 0.05",
+                            type: { numeric: true },
+                        },
+                        q2: {
+                            displayName: "2nd Quantile",
+                            description: "Default 0.25",
+                            type: { numeric: true }
+
+                        },
+                        q3: {
+                            displayName: "3rd Quantile",
+                            description: "Default 0.75",
+                            type: { numeric: true }
+                        },
+                        q4: {
+                            displayName: "4th Quantile",
+                            description: "Default 0.95",
+                            type: { numeric: true }
+                        },
+                        outlierFactor: {
+                            displayName: "Outlier Multipler",
+                            description: "Highlight IF (val <q1 - OM || val >q3 + OM ) where OM= X * (q2 - q1)",
+                            type: { numeric: true }
+                        },
+                        yTitle: {
+                            displayName: "Y Axis Title",
+                            type: { numeric: false }
+                        }
+                    },
+                },
+                series: {
+                    displayName: "Time Slot",
+                    properties: {
+                        timebucket: {
+                            displayName: "Time Bucket",
+                            description: "Time Bucket",
+                            type: { numeric: true },
+                            placeHolderText: "60",
+                            suppressFormatPainterCopy: true,
+                        },
+                    }
+                }
+            },
+            dataViewMappings: [
+                {
+                    conditions: [
+                        { 'Category': { max: 1 }, 'Values': { min: 0 } },
+                    ],
+                    categorical: {
+                        categories: {
+                            for: { in: "Category" },
+                            dataReductionAlgorithm: { top: {} }
+                        },
+                        values: {
+                            group: {
+                                by: 'Series',
+                                select: [{ for: { in: 'Values' } }],
                             }
+
                         },
-                        outliers: {
-                            displayName: "Outliers",
-                            description: "Show outliers",
-                            type: { bool: true }
-                        }
-                    }
-                },
-                dataPoint: {
-                    displayName: "Data colors",
-                    properties: {
-                        fill: {
-                            displayName: "Fill",
-                            type: { fill: { solid: { color: true } } }
-                        }
-                    }
-                },
-                gridLines: {
-                    displayName: "Gridlines",
-                    properties: {
-                        majorGrid: {
-                            displayName: "Major grid",
-                            description: "Display major gridlines",
-                            type: { bool: true }
-                        },
-                        minorGrid: {
-                            displayName: "Minor grid",
-                            description: "Display minor gridlines",
-                            type: { bool: true }
-                        }
-                    }
-                },
-                labels: {
-                    displayName: "Data labels",
-                    properties: {
-                        show: {
-                            displayName: "Show",
-                            type: { bool: true }
-                        }
-                    }
-                },
-                legend: {
-                    displayName: "Legend",
-                    properties: {
-                        show: {
-                            displayName: "Show",
-                            description: "Show legend",
-                            type: { bool: true }
-                        },
-                        showTitle: {
-                            displayName: "Title",
-                            description: "Display a title for legend symbols",
-                            type: { bool: true }
-                        },
-                        titleText: {
-                            displayName: "Legend Name",
-                            description: "Title text",
-                            type: { text: true }
-                        }
-                    }
+                        rowCount: { preferred: { min: 2 }, supported: { min: 2 } }
+                    },
                 }
-            }
+            ],
+            suppressDefaultTitle: true,
         };
-
-        private static properties = {
-            formatString: { objectName: "general", propertyName: "formatString" },
-            whiskerType: { objectName: "chartOptions", propertyName: "whisker" },
-            showOutliers: { objectName: "chartOptions", propertyName: "outliers" },
-            showMajorGridLines: { objectName: "gridLines", propertyName: "majorGrid" },
-            showMinorGridLines: { objectName: "gridLines", propertyName: "minorGrid" },
-            fill: { objectName: "dataPoint", propertyName: "fill" },
-            dataLabelShow: { objectName: "labels", propertyName: "show" },
-            legendShow: { objectName: "legend", propertyName: "show" },
-            legendShowTitle: { objectName: "legend", propertyName: "showTitle" },
-            legendTitleText: { objectName: "legend", propertyName: "titleText" },
-        };
-
-        public static formatStringProp: DataViewObjectPropertyIdentifier = {
-            objectName: "general",
-            propertyName: "formatString",
-        };
-
-        private static VisualClassName = "boxWhiskerChart";
-
-        private static Axis: ClassAndSelector = { class: "axis", selector: ".axis" };
-        private static AxisX: ClassAndSelector = { class: "axisX", selector: ".axisX" };
-        private static AxisGrid: ClassAndSelector = { class: "axisGrid", selector: ".axisGrid" };
-        private static AxisY: ClassAndSelector = { class: "axisY", selector: ".axisY" };
-        private static AxisNode: ClassAndSelector = { class: "axisNode", selector: ".axisNode" };
-        private static AxisLabel: ClassAndSelector = { class: "axisLabel", selector: ".axisLabel" };
-        private static Chart: ClassAndSelector = { class: "chart", selector: ".chart" };
-        private static ChartNode: ClassAndSelector = { class: 'chartNode', selector: '.chartNode' };
-        private static ChartQuartileBox: ClassAndSelector = { class: 'chartQuartileBox', selector: '.chartQuartileBox' };
-        private static ChartMedianLine: ClassAndSelector = { class: 'chartMedianLine', selector: '.chartMedianLine' };
-        private static ChartMinLine: ClassAndSelector = { class: 'chartMinLine', selector: '.chartMinLine' };
-        private static ChartMaxLine: ClassAndSelector = { class: 'chartMaxLine', selector: '.chartMaxLine' };
-        private static ChartVerticalLine: ClassAndSelector = { class: 'chartVerticalLine', selector: '.chartVerticalLine' };
-        private static ChartAverageDot: ClassAndSelector = { class: 'chartAverageDot', selector: '.chartAverageDot' };
-        private static ChartOutlierDot: ClassAndSelector = { class: 'chartOutlierDot', selector: '.chartOutlierDot' };
-        private static ChartDataLabel: ClassAndSelector = { class: "chartDataLabel", selector: ".chartDataLabel" };
-
-        private svg: D3.Selection;
-        private axis: D3.Selection;
-        private chart: D3.Selection;
-
-        private axisX: D3.Selection;
-        private axisY: D3.Selection;
-        private axisGrid: D3.Selection;
-        private axisOptions: BoxWhiskerAxisOptions;
-
-        private mainGroupElement: D3.Selection;
-        private colors: IDataColorPalette;
-        private selectionManager: SelectionManager;
-        private viewport: IViewport;
-        private hostServices: IVisualHostServices;
-        private dataView: DataView;
-        private data: BoxWhiskerChartData;
-
-        private margin: IMargin;
-        private legend: ILegend;
-        private format: string;
-
-        private LegendPadding: number = 5;
-        private DefaultLegendSize: number = 20;
-        private LegendSize: number = this.DefaultLegendSize;
-        private AxisSizeY: number = 40;
-        private AxisSizeX: number = 0;
-        private ChartPadding: number = 25;
-
-        private static DefaultMargin: IMargin = {
-            top: 50,
-            bottom: 50,
-            right: 100,
-            left: 100
-        };
-
-        public converter(dataView: DataView, colors: IDataColorPalette): BoxWhiskerChartData {
-            if (!dataView ||
-                dataView.table ||
-				!dataView.categorical ||
-                !dataView.categorical.values ||
-                dataView.categorical.values.length < 1 ||                
-                !dataView.categorical.categories ||
-                !dataView.categorical.categories[0]) {
-                return {
-                    dataPoints: [],
-                    legendData: {
-                        dataPoints: []
-                    }
-                };
-            }
-            var columns = dataView.categorical.values;
-
-            var formatNoSI = d3.format(',.1f');
-            var formatSI = d3.format('.4s');
-
-            var formatLabels = (value) => {
-                return value < 5000 ? formatNoSI(value) : formatSI(value);
-            }
-
-            var dataPoints: BoxWhiskerChartDatapoint[][] = [];
-            var legendData: LegendData = {
-                fontSize: 8.25,
-                dataPoints: [],
-                title: dataView.categorical.values.source.displayName
-            };
-
-            for (var i = 0, iLen = columns.length; i < iLen; i++) {
-                var values = columns[i].values.filter(function (value) { return value != null; });
-
-                if (values.length == 0) {
-                    break;
-                }
-                var selector = { data: [columns[i].identity], };
-                var id = new SelectionId(selector, false);
-                var colorHelper = new ColorHelper(this.colors, BoxWhiskerChart.properties.fill, this.colors.getColorByIndex(i).value);
-
-                legendData.dataPoints.push({
-                    label: columns[i].source.groupName == null ? '(blank)' : columns[i].source.groupName,
-                    color: colorHelper.getColorForSeriesValue(columns.grouped()[i].objects, columns.identityFields, columns.grouped()[i].name),
-                    icon: LegendIcon.Box,
-                    selected: false,
-                    identity: id
-                });
-
-                var sortedValue = values.sort((n1, n2) => n1 - n2);
-
-                var median = (
-                    sortedValue[Math.floor((sortedValue.length - 1) / 2)] +
-                    sortedValue[Math.ceil((sortedValue.length - 1) / 2)]) / 2;
-
-                var q1 = sortedValue.length == 3 ? 0 : (sortedValue.length - 1) / 4;
-
-                var q1LowValue = sortedValue[Math.floor(q1)];
-                var q1HighValue = sortedValue[Math.ceil(q1)];
-
-                var quartile1 = sortedValue.length <= 2 ? null : q1LowValue + ((q1 - Math.floor(q1)) * (q1HighValue - q1LowValue));
-
-                var q3 = sortedValue.length == 3 ? 2 : 3 * q1;
-
-                var q3LowValue = sortedValue[Math.floor(q3)];
-                var q3HighValue = sortedValue[Math.ceil(q3)];
-
-                var quartile3 = sortedValue.length <= 2 ? null : q3LowValue + (((3 * q1) - Math.floor(3 * q1)) * (q3HighValue - q3LowValue));
-
-                var minValue
-                var maxValue
-                var minValueLabel
-                var maxValueLabel
-                var whiskerType = this.getWhiskerType(this.dataView);
-
-                if (!quartile1 || !quartile3) {
-                    whiskerType = BoxWhiskerTypeOptions.ChartType.MinMax;
-                }
-
-                switch (whiskerType) {
-                    case BoxWhiskerTypeOptions.ChartType.MinMax:
-                        minValue = sortedValue[0];
-                        maxValue = sortedValue[sortedValue.length - 1];
-                        minValueLabel = "Minimum";
-                        maxValueLabel = "Maximum";
-                        break;
-                    case BoxWhiskerTypeOptions.ChartType.Standard:
-                        var IQR = quartile3 - quartile1;
-                        minValue = sortedValue.filter((value) => value >= quartile1 - (1.5 * IQR))[0];
-                        maxValue = sortedValue.filter((value) => value <= quartile3 + (1.5 * IQR)).reverse()[0];
-                        minValueLabel = "Minimum";
-                        maxValueLabel = "Maximum";
-                        break;
-                    case BoxWhiskerTypeOptions.ChartType.IQR:
-                        var IQR = quartile3 - quartile1;
-                        minValue = quartile1 - (1.5 * IQR);
-                        maxValue = quartile3 + (1.5 * IQR);
-                        minValueLabel = "Q1 - 1.5 x IQR";
-                        maxValueLabel = "Q3 + 1.5 x IQR";
-                        break;
-                }
-
-                var ttl: number = 0;
-                sortedValue.forEach(value => { ttl += value; });
-                var avgvalue = ttl / sortedValue.length;
-
-                dataPoints.push([]);
-
-                this.format = dataView.categorical.values[0].source.format ? dataView.categorical.values[0].source.format : "#,0.00";
-                var outliers = this.getShowOutliers(this.dataView) ?
-                    sortedValue
-                        .filter((value) => value < minValue || value > maxValue) // Filter outliers 
-                        .filter((value, index, self) => self.indexOf(value) == index) // Make unique
-                    : [];
-
-                dataPoints[i].push({
-                    min: minValue,
-                    max: maxValue,
-                    quartile1: quartile1,
-                    quartile3: quartile3,
-                    median: median,
-                    average: avgvalue,
-                    samples: sortedValue.length,
-                    category: i + 1,
-                    outliers: outliers,
-                    dataLabels: (this.getDataLabelShow(this.dataView)) ?
-                        [maxValue, minValue, avgvalue, median, quartile1, quartile3]
-                            .filter((value, index, self) => self.indexOf(value) == index) // Make unique
-                            .map((dataPoint) => { return { value: dataPoint, x: 0, y: 0 } })
-                            .concat(outliers.map((outlier) => { return { value: outlier, x: 0, y: 0 } }))
-                        : [],
-                    label: columns[i].source.groupName == null ? '(blank)' : columns[i].source.groupName,
-                    identity: id,
-                    color: colorHelper.getColorForSeriesValue(columns.grouped()[i].objects, columns.identityFields, columns.grouped()[i].name),
-                    tooltipInfo: [
-                        {
-                            displayName: 'Group',
-                            value: columns[i].source.groupName == null ? '(blank)' : columns[i].source.groupName,
-                        },
-                        {
-                            displayName: '# Samples',
-                            value: valueFormatter.format(sortedValue.length, 'd', false),
-                        },
-                        {
-                            displayName: maxValueLabel,
-                            value: valueFormatter.format(maxValue, this.format, true),
-                        },
-                        {
-                            displayName: 'Quartile 3',
-                            value: valueFormatter.format(quartile3, this.format, true),
-                        },
-                        {
-                            displayName: 'Median',
-                            value: valueFormatter.format(median, this.format, true),
-                        },
-                        {
-                            displayName: 'Average',
-                            value: valueFormatter.format(avgvalue, this.format, true),
-                        },
-                        {
-                            displayName: 'Quartile 1',
-                            value: valueFormatter.format(quartile1, this.format, true),
-                        },
-                        {
-                            displayName: minValueLabel,
-                            value: valueFormatter.format(minValue, this.format, true),
-                        }]
-                });
-            }
-            return {
-                dataPoints: dataPoints,
-                legendData: legendData
-            };
-        }
-
-        public constructor(options?: BoxWhiskerChartConstructorOptions) {
-
-            if (options) {
-                if (options.svg) {
-                    this.svg = options.svg;
-                }
-                if (options.margin) {
-                    this.margin = options.margin;
-                }
-            }
-        }
-
-        public init(options: VisualInitOptions): void {
-            var element = options.element;
-            this.hostServices = options.host;
+        public init(options: VisualInitOptions) {
+            this.root = d3.select(options.element.get(0));
             this.colors = options.style.colorPalette.dataColors;
-            this.selectionManager = new SelectionManager({ hostServices: options.host });
-
-            this.legend = createLegend(element, false, null, true, LegendPosition.Top);
-
-            if (!this.svg) {
-                this.svg = d3.select(element.get(0)).append('svg');
-            }
-
-            if (!this.margin) {
-                this.margin = BoxWhiskerChart.DefaultMargin;
-            }
-
-            this.svg.classed(BoxWhiskerChart.VisualClassName, true);
-
-            this.colors = options.style.colorPalette.dataColors;
-            this.mainGroupElement = this.svg.append("g");
-
-            this.axis = this.mainGroupElement
-                .append("g")
-                .classed(BoxWhiskerChart.Axis.class, true);
-
-            this.axisX = this.axis
-                .append("g")
-                .classed(BoxWhiskerChart.AxisX.class, true);
-
-            this.axisGrid = this.axis
-                .append("g")
-                .classed(BoxWhiskerChart.AxisGrid.class, true);
-
-            this.axisY = this.axis
-                .append("g")
-                .classed(BoxWhiskerChart.AxisY.class, true);
-
-            this.chart = this.mainGroupElement
-                .append("g")
-                .classed(BoxWhiskerChart.Chart.class, true);
-
-            Legend.positionChartArea(this.svg, this.legend);
+            this.hostService = options.host;
         }
 
         public update(options: VisualUpdateOptions): void {
-            if (!options.dataViews || !options.dataViews[0]) {
-                this.chart.selectAll(BoxWhiskerChart.ChartNode.selector).remove();
-                this.axis.selectAll(BoxWhiskerChart.AxisX.selector).remove();
-                this.axis.selectAll(BoxWhiskerChart.AxisY.selector).remove();
-                this.axis.selectAll(BoxWhiskerChart.AxisGrid.selector).remove();
+            this.root.selectAll("div").remove();
+            this.hostService.setWarnings(null);
+            if (options.dataViews.length === 0) { return; }
+            this.dataView = options.dataViews[0];
+            this.currentTimeBucket = this.getTimeBucket(this.dataView);
+            var categoryIndex = null;
+
+            var axisIndex = 0;
+            var valueIndex = 1;
+            if (options.dataViews[0].categorical &&
+                options.dataViews[0].categorical.categories &&
+                options.dataViews[0].categorical.categories.length > 0 &&
+                options.dataViews[0].categorical.categories[0] &&
+                options.dataViews[0].categorical.categories[0].source &&
+                options.dataViews[0].categorical.categories[0].source.roles &&
+                options.dataViews[0].categorical.categories[0].source.roles["Values"]) {
+                axisIndex = 1;
+                valueIndex = 0;
+            }
+
+            // we must have at least one row of values
+            if (!options.dataViews[0].categorical ||
+                (!options.dataViews[0].categorical.values &&
+                    !(options.dataViews[0].categorical &&
+                        options.dataViews[0].categorical.categories &&
+                        options.dataViews[0].categorical.categories[valueIndex] &&
+                        options.dataViews[0].categorical.categories[valueIndex].source &&
+                        options.dataViews[0].categorical.categories[valueIndex].source.roles &&
+                        options.dataViews[0].categorical.categories[valueIndex].source.roles["Values"]))) {
                 return;
-            };
-
-            var dataView = this.dataView = options.dataViews[0],
-                data = this.data = this.converter(dataView, this.colors),
-                dataPoints = data.dataPoints,
-                dataViewMetadataColumn: DataViewMetadataColumn,
-                duration = options.suppressAnimations ? 0 : 250;
-
-            this.viewport = {
-                height: options.viewport.height > 0 ? options.viewport.height : 0,
-                width: options.viewport.width > 0 ? options.viewport.width : 0
-            };
-
-            var legendProperties: DataViewObject = {
-                show: this.getLegendShow(this.dataView),
-                showTitle: this.getLegendShowTitle(this.dataView),
-                titleText: this.getLegendTitleText(this.dataView),
-            }
-            LegendData.update(data.legendData, legendProperties);
-            if (!this.getLegendShow(this.dataView)) {
-                this.LegendSize = this.LegendPadding;
-            }
-            else {
-                this.LegendSize = this.DefaultLegendSize + this.LegendPadding;
             }
 
-            this.legend.changeOrientation(LegendPosition.Top);
-            this.legend.drawLegend(data.legendData, this.viewport);
-
-            this.svg
-                .attr({
-                    'height': this.viewport.height,
-                    'width': this.viewport.width
+            if (options.dataViews[0].categorical.categories) {
+                options.dataViews[0].categorical.categories.forEach(function (col, index) {
+                    if (col.source.roles && col.source.roles["Values"]) { // skip category creation when it's index 0
+                        return;
+                    } else {
+                        categoryIndex = axisIndex;
+                    }
                 });
+            }
+         
+            // check that we have the correct data
+              
+            var appendTo = this.root[0][0];
 
-            var mainGroup = this.chart;
-            mainGroup.attr('transform', 'scale(1, -1)' + SVGUtil.translate(0, -this.viewport.height + this.AxisSizeX));
+            var viewport = options.viewport;
 
-            // calculate scalefactor
-            var stack = d3.layout.stack();
-            var layers = stack(dataPoints);
+            var dataPoints: boolean = true;
+            // options
+            var YAxisTitle = this.getYTitle(this.dataView);
+            var XAxisTitle = "";
+            var title = "";
+            var outlierFactor = this.getOutlierFactor(this.dataView);
+            var labels = true; // show the text labels beside individual boxplots?
+            var q1quantile = this.getQ2(this.dataView);
+            var q2quantile = this.getQ3(this.dataView);
+            var lowWhiskerQuantile = this.getQ1(this.dataView);
+            var highWhiskerQuantile = this.getQ4(this.dataView);
+            var valueFormat = "0";
+            var pData: BoxWhiskerData[] = [];
 
-            this.axisOptions = this.getAxisOptions(
-                d3.min(layers, (layer) => {
-                    return d3.min(layer, (point) => {
-                        return d3.min([point.min, d3.min(point.outliers)]);
+            if (lowWhiskerQuantile < 0 || lowWhiskerQuantile > 1 || lowWhiskerQuantile > q1quantile
+                || q1quantile < 0 || q1quantile > 1 || q1quantile > q2quantile
+                || q2quantile < 0 || q2quantile > 1 || q2quantile > highWhiskerQuantile
+                || highWhiskerQuantile < 0 || highWhiskerQuantile > 1
+                || highWhiskerQuantile < 0 || highWhiskerQuantile > 1
+                ) {
+                var visualMessage: IVisualErrorMessage = {
+                    message: 'Quantiles need to be between 0 and 1 and in increasing order from 1st to 4th',
+                    title: 'Invalid Quantile Multiplier',
+                    detail: '',
+                };
+                var warning: IVisualWarning = {
+                    code: 'UnexpectedValueType',
+                    getMessages: () => visualMessage,
+                };
+                this.hostService.setWarnings([warning]);
+
+                return;
+            }
+
+            // start converter
+            var catDV: DataViewCategorical = this.dataView.categorical;
+            var cat = catDV.categories[0];
+            var catValues = cat.values;
+            var values = catDV.values;
+            var dataPoints1: any[][] = [];
+            if (1 == 2) {
+
+                var legendData: LegendData = {
+                    dataPoints: [],
+                    title: values[0].source.displayName
+                };
+                for (var i = 0, iLen = values.length; i < iLen; i++) {
+                    dataPoints1.push([]);
+                    legendData.dataPoints.push({
+                        label: values[i].source.groupName,
+                        color: this.colors.getColorByIndex(i).value,
+                        icon: LegendIcon.Box,
+                        selected: false,
+                        identity: null
                     });
-                }),
-                d3.max(layers, (layer) => {
-                    return d3.max(layer, (point) => {
-                        return d3.max([point.max, d3.max(point.outliers)]);
-                    });
-                }));
+                    for (var k = 0, klen = values[i].values.length; k < klen; k++) {
+                        var id = SelectionIdBuilder
+                            .builder()
+                            .withSeries(this.dataView.categorical.values, this.dataView.categorical.values[i])
+                            .createSelectionId();
+                        dataPoints1[i].push({
+                            x: k,
+                            y: values[i].values[k],
+                            identity: id
+                        });
+                    }
+                }
+            }
+            // end converter
+            
+            var dataView = this.dataView;
+            var baseCategoryData = null;
+            if (categoryIndex !== null && this.dataView.categorical.values) {
+                baseCategoryData = this.dataView.categorical.values;
+            }
+            // else if (categoryIndex != null && this.dataView.categorical.values === undefined) {
+            //     var categoryCol = this.dataView.categorical.categories[categoryIndex];
+            //     var categoryData = {};
+            //     // normalize the data
+            //     for (var k = 0; k < this.dataView.categorical.categories.length; k++) {
+            //         if (k === categoryIndex) { continue; }
+            //         for (var x = 0; x < this.dataView.categorical.categories[k].values.length; x++) {
+            //             if (categoryData[categoryCol.values[x]] === undefined) {
+            //                 categoryData[categoryCol.values[x]] = [];
+            //             }
+            //             categoryData[categoryCol.values[x]].push(this.dataView.categorical.categories[k].values[x]);
+            //         }
+            //         if (this.dataView.categorical.categories[k].source.format) {
+            //             valueFormat = this.dataView.categorical.categories[k].source.format;
+            //         }
+            //     }
 
-            var yScale = d3.scale.linear()
-                .domain([this.axisOptions.min, this.axisOptions.max])
-                .range([this.ChartPadding, this.viewport.height - this.AxisSizeX - this.LegendSize]);
+            //     baseCategoryData = [];
+            //     // put it into category format
+            //     Object.keys(categoryData).forEach(function (key) {
+            //         baseCategoryData.push({ 'values': categoryData[key], 'name': key });
+            //     });
+            // } else {
+            //     if (this.dataView.categorical.categories === undefined) {
+            //         return;
+            //     }
+            //     baseCategoryData = this.dataView.categorical.categories;
+            //     valueFormat = this.dataView.categorical.categories[0].source.format;
+            // }
+            var nan = false;
+            var boxValues: number[][] = [];
+            var labelNames: string[] = [];
+            var ctb = this.currentTimeBucket;
+            baseCategoryData.forEach(function (categoryValues, index) {
+                                
+                if(categoryValues.source.groupName%ctb!=0) return;
 
-            var xScale = d3.scale.linear()
-                .domain([1, dataPoints.length + 1])
-                .range([this.AxisSizeY, this.viewport.width - this.AxisSizeY]);
+                // make sure all the data are parseable numbers
+                categoryValues.values.forEach(function (value, index1) {
+                    if (!boxValues[index1]) boxValues.push([]);
 
-            if (dataPoints.length == 0) {
-                this.chart.selectAll(BoxWhiskerChart.ChartNode.selector).remove();
-                this.axis.selectAll(BoxWhiskerChart.AxisX.selector).remove();
-                this.axis.selectAll(BoxWhiskerChart.AxisY.selector).remove();
-                this.axis.selectAll(BoxWhiskerChart.AxisGrid.selector).remove();
+                    if (isNaN(value)) {
+                        nan = true;
+                        return;
+                    } else {
+                        boxValues[index1].push(value);
+                    };
+                });
+                if (nan) { return; }
 
-                var warnings: IVisualWarning[] = [];
-                warnings.push({
-                    code: 'DataSetIvalid',
-                    getMessages: () => {
-                        var visualMessage: IVisualErrorMessage = {
-                            message: "Dataset is not valid or too small/empty for this visualization.",
-                            title: '',
-                            detail: '',
-                        };
-                        return visualMessage;
+            });
+
+            boxValues.forEach(function (values, index) {
+                values = values.sort(d3.ascending).filter(function (d, i, a) {
+                    if (i == 0) return true;
+                    if (a[i - 1] == d) return false;
+                    return true;
+                });
+                var outliers = [];
+                var q1 = d3.quantile(values, q1quantile);
+                var q2 = d3.quantile(values, q2quantile);
+                var lowWhisker = d3.quantile(values, lowWhiskerQuantile);
+                var highWhisker = d3.quantile(values, highWhiskerQuantile);
+                var i = -1, j = values.length, of = (q2 - q1) * outlierFactor;
+                while (values[++i] <= lowWhisker - of) {
+                    outliers.push(values[i]);
+                }
+                while (values[--j] >= highWhisker + of) {
+                    outliers.push(values[j]);
+                }
+                var outlierIndexes = [i, j];
+                values.forEach(function (val) {
+                    if (val <= lowWhisker || val >= highWhisker) {
+                        outliers.push(val);
                     }
                 });
 
-                this.hostServices.setWarnings(warnings);
+                var med = d3.median(values);
+                var average = d3.mean(values);
+                if (valueFormat === undefined) {
+                    if (med < 1000 || highWhisker - lowWhisker < 100) {
+                        average = Number(average.toFixed(2));
+                        med = Number(med.toFixed(2));
+                        lowWhisker = Number(lowWhisker.toFixed(2));
+                        highWhisker = Number(highWhisker.toFixed(2));
+                    }
+                    else if (med.toString.length > 10) {
+                        average = Math.round(average * 10) / 10;
+                        med = Math.round(med * 10) / 10;
+                        lowWhisker = Math.round(lowWhisker * 10) / 10;
+                        highWhisker = Math.round(highWhisker * 10) / 10;
+                    } else {
+                        valueFormat = "0";
+                    }
+                }
+                var bwData = {
+                    Label: catValues[index],
+                    Q1: q1,
+                    Median: med,
+                    Q3: q2,
+                    Minimum: parseInt(d3.min(values).toString(), null),
+                    Maximum: parseInt(d3.max(values).toString(), null),
+                    Mean: average,
+                    LowWhisker: lowWhisker,
+                    HighWhisker: highWhisker,
+                    NumDataPoints: values.length,
+                    Points: values,
+                    Outliers: outliers,
+                    OutlierIndexes: outlierIndexes,
+                    OutlierObjects: null
+                };
+                pData.push(bwData);
 
-                return;
+            });
+            if (nan) {
+                return; // our dataset has non numerical data 
+            }
+            var plotData =
+                {
+                    Title: title, XAxisTitle: XAxisTitle, YAxisTitle: YAxisTitle,
+                    PlotData: pData,
+                    Goal: null
+                };
+
+            var margin = { top: 5, right: 5, bottom: 40, left: 60 },
+                h = Math.max(100, viewport.height - margin.top - margin.bottom - 8); // 8 for scrollbar
+
+            var pdata = plotData.PlotData;
+            var scaleData = this.createPlotAndAxesScales(plotData, h, margin.top);
+            var formatter = valueFormatter.create({ format: valueFormat });
+            margin.left = 50 + scaleData["boxRange"][1].toString.length * 5;
+            var topLen = scaleData["boxRange"][1].toString.length * 20; // how many chars in the longest val
+            var minWidth = (100 + topLen) * pData.length;
+            var w = Math.max(minWidth, viewport.width - margin.left - margin.right);
+
+            var chart = d3.box()
+                .height(h)
+                .width(w)
+                .domain(scaleData["boxDomain"])
+                .range(scaleData["boxRange"])
+                .showLabels(labels)
+                .showDataPoints(dataPoints)
+                .tickFormat(formatter.format);
+
+            //d3.select(appendTo.parentNode).attr("class", "boxWhisker visual ng-isolate-scope");
+            if (d3.select(appendTo.parentNode).attr("class").indexOf("boxWhiskerScroll") < 0) {
+                d3.select(appendTo.parentNode).attr("class", d3.select(appendTo.parentNode).attr("class") + " boxWhiskerScroll");
             }
 
-            this.drawChart(dataPoints, xScale, yScale, duration);
-            this.drawAxis(dataPoints, yScale, duration);
-        }
+            var svg = d3.select(appendTo)
+                .attr("class", "boxWhisker")
+                .append("div")
+                .append("svg")
+                .attr("width", w + margin.left + margin.right)
+                .attr("height", h + margin.top + margin.bottom)
+                .attr("class", "box")
+                .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-        private drawAxis(dataPoints: BoxWhiskerChartDatapoint[][], yScale: D3.Scale.Scale, duration: number) {
-            if ((this.axis.selectAll(BoxWhiskerChart.AxisX.selector)[0].length == 0) ||
-                (this.axis.selectAll(BoxWhiskerChart.AxisY.selector)[0].length == 0) ||
-                (this.axis.selectAll(BoxWhiskerChart.AxisGrid.selector)[0].length == 0)) {
-                this.axisGrid = this.axis
-                    .append("g")
-                    .classed(BoxWhiskerChart.AxisGrid.class, true);
-
-                this.axisX = this.axis
-                    .append("g")
-                    .classed(BoxWhiskerChart.AxisX.class, true);
-
-                this.axisY = this.axis
-                    .append("g")
-                    .classed(BoxWhiskerChart.AxisY.class, true);
-            }
-
-            var xs = d3.scale.ordinal();
-            xs.domain(dataPoints.map((values) => { return values[0].label; }))
-                .rangeBands([this.AxisSizeY, this.viewport.width - this.AxisSizeY]);
-
-            var ys = yScale.range([this.viewport.height - this.AxisSizeX - this.ChartPadding, this.LegendSize]);
-
-            var xAxisTransform =
-                this.axisOptions.min > 0 ?
-                    ys(this.axisOptions.min) :
-                    this.axisOptions.max < 0 ?
-                        ys(this.axisOptions.min) :
-                        ys(0);
+                
+            // the x-axis
+            var xaxisScale = d3.scale.ordinal()
+                .domain(pdata.map(function (d) { return d.Label; }))
+                .rangeRoundBands([0, w], 0.7, 0.3);
 
             var xAxis = d3.svg.axis()
-                .scale(xs)
-                .orient("bottom")
-                .tickSize(0)
-                .innerTickSize(8 + ((this.viewport.height - this.ChartPadding - this.AxisSizeX) - xAxisTransform));
+                .scale(xaxisScale)
+                .orient("bottom");
+
+            // the y-axis
+            var y = d3.scale.linear()
+                .domain(scaleData["yAxesDomain"])
+                .range(scaleData["yAxesRange"]);
 
             var yAxis = d3.svg.axis()
-                .scale(ys)
+                .scale(y)
                 .orient("left")
-                .tickFormat(d3.format("s"))
-                .ticks(this.axisOptions.ticks);
+                .tickFormat(formatter.format);
+                
+            // draw the boxplots
+            svg.selectAll(".box")
+                .data(pdata)
+                .enter().append("g")
+                .attr("transform", function (d) {
+                return "translate(" + xaxisScale(d.Label) + "," + margin.top + ")";
+            })
+                .attr("data", function (d) {
+                return d.Label;
+            })
+                .call(chart.width(xaxisScale.rangeBand()));
 
-            this.axisX
-                .attr("transform", "translate(0, " + xAxisTransform + ")")
-                .transition()
-                .duration(duration)
-                .call(xAxis);
-
-            this.axisY
-                .attr("transform", "translate(" + this.AxisSizeY + ", 0)")
-                .transition()
-                .duration(duration)
-                .call(yAxis);
-
-            if (this.getShowMajorGridLines(this.dataView)) {
-                var yGrid = d3.svg.axis()
-                    .scale(ys)
-                    .orient("left")
-                    .ticks(this.axisOptions.ticks * (this.getShowMinorGridLines(this.dataView) ? 5 : 1))
-                    .outerTickSize(0)
-                    .innerTickSize(-(this.viewport.width - (2 * this.AxisSizeY)));
-
-                this.axisGrid
-                    .attr("transform", "translate(" + this.AxisSizeY + ", 0)")
-                    .attr("opacity", 1)
-                    .transition()
-                    .duration(duration)
-                    .call(yGrid);
-            }
-            else {
-                this.axisGrid.attr("opacity", 0);
-            }
-        }
-
-        private drawChart(dataPoints: BoxWhiskerChartDatapoint[][], xScale: D3.Scale.Scale, yScale: D3.Scale.Scale, duration: number): void {
-            var opacity: number = .5,
-                dotRadius: number = 5;
-
-            var stack = d3.layout.stack();
-            var layers = stack(dataPoints);
-
-            var sm = this.selectionManager;
-
-            var selection = this.chart.selectAll(BoxWhiskerChart.ChartNode.selector).data(layers);
-
-            selection
-                .enter()
-                .append('g')
-                .classed(BoxWhiskerChart.ChartNode.class, true);
-
-            var quartile = selection.selectAll(BoxWhiskerChart.ChartQuartileBox.selector).data(d => {
-                if (d && d.length > 0) { return [d]; }
-                return [];
-            });
-
-            this.svg.on('click', () => this.selectionManager.clear().then(() => quartile.style('opacity', 1)));
-
-            var quartileData = (points) => {
-                return points.map((value) => {
-                    var x1 = xScale(value.category + 0.25);
-                    var x2 = xScale(value.category + 0.5);
-                    var x3 = xScale(value.category + 0.75);
-                    var y1 = yScale(value.min);
-                    var y2 = value.samples <= 3 ? yScale(value.min) : yScale(value.quartile1);
-                    var y3 = value.samples <= 3 ? yScale(value.max) : yScale(value.quartile3);
-                    var y4 = yScale(value.max);
-                    return `M ${x1},${y1}L${x3},${y1}L${x2},${y1}L${x2},${y2} L${x1},${y2}L${x1},${y3}L${x2},${y3} L${x2},${y4}L${x1},${y4}L${x3},${y4}L${x2},${y4}L${x2},${y3} L${x3},${y3}L${x3},${y2}L${x2},${y2}L${x2},${y1}`;
-                }).join(' ')
-            };
-
-            var medianData = (points) => {
-                return points.map((value) => {
-                    var x1 = xScale(value.category + 0.25);
-                    var y1 = yScale(value.median);
-                    var x2 = xScale(value.category + 0.75);
-                    var y2 = yScale(value.median);
-                    return `M ${x1},${y1} L${x2},${y2}`;
-                }).join(' ')
-            };
-
-            var avgData = (points) => {
-                return points.map((value) => {
-                    var x1 = xScale(value.category + 0.5);
-                    var y1 = yScale(value.average);
-                    var r = dotRadius;
-                    var r2 = 2 * r;
-                    return `M ${x1},${y1} m -${r}, 0 a ${r},${r} 0 1,1 ${r2},0 a ${r},${r} 0 1,1 -${r2},0`;
-                }).join(' ')
-            };
-
-            var outlierData = (points) => {
-                return points.map((value) => {
-                    var x1 = xScale(value.category + 0.5);
-                    var y1 = yScale(value.value);
-                    var r = dotRadius;
-                    var r2 = 2 * r;
-                    return `M ${x1},${y1} m -${r}, 0 a ${r},${r} 0 1,1 ${r2},0 a ${r},${r} 0 1,1 -${r2},0`;
-                }).join(' ')
-            };
-
-            quartile
-                .enter()
-                .append('path')
-                .classed(BoxWhiskerChart.ChartQuartileBox.class, true);
-
-            quartile
-                .style('fill', value => value[0].color)
-                .attr('opacity', 1)
-                .on('click', function (d) {
-                    sm.select(d[0].identity).then((ids) => {
-                        if (ids.length > 0) {
-                            quartile.style('opacity', 0.5);
-                            d3.select(this).transition()
-                                .duration(duration)
-                                .style('opacity', 1);
-                        } else {
-                            quartile.style('opacity', 1);
-                        }
-                    });
-                    d3.event.stopPropagation();
-                })
-                .style('stroke', value => value[0].color)
-                .style('stroke-width', 2)
-                .transition()
-                .duration(duration)
-                .attr('d', quartileData);
-
-            quartile.exit().remove();
-
-            var average = selection.selectAll(BoxWhiskerChart.ChartAverageDot.selector).data(d => {
-                if (d && d.length > 0) { return [d]; }
-                return [];
-            });
-
-            average
-                .enter()
-                .append('path')
-                .classed(BoxWhiskerChart.ChartAverageDot.class, true);
-
-            average
-                .style('fill', 'black')
-                .transition()
-                .duration(duration)
-                .attr('d', avgData);
-
-            average.exit().remove();
-
-            var median = selection.selectAll(BoxWhiskerChart.ChartMedianLine.selector).data(d => {
-                if (d && d.length > 0) { return [d]; }
-                return [];
-            });
-
-            median
-                .enter()
-                .append('path')
-                .classed(BoxWhiskerChart.ChartMedianLine.class, true);
-
-            median
-                .style('stroke', 'black')
-                .style('stroke-width', 2)
-                .transition()
-                .duration(duration)
-                .attr('d', medianData);
-
-            median.exit().remove();
-
-            var outliers = selection.selectAll(BoxWhiskerChart.ChartOutlierDot.selector).data(d => {
-                if (d[0].outliers && d[0].outliers.length > 0) {
-                    return d[0].outliers.map((dataPoint) => {
-                        return [{
-                            category: d[0].category,
-                            color: d[0].color,
-                            value: dataPoint
-                        }
-                        ]
-                    });
-                }
-                return [];
-            });
-
-            outliers
-                .enter()
-                .append('path')
-                .classed(BoxWhiskerChart.ChartOutlierDot.class, true);
-
-            outliers
-                .style('fill', value => value[0].color)
-                .transition()
-                .duration(duration)
-                .attr('d', outlierData);
-
-            outliers.exit().remove();
-
-            var dataLabels = selection.selectAll(BoxWhiskerChart.ChartDataLabel.selector).data(d => {
-                if (d[0].dataLabels && d[0].dataLabels.length > 0) {
-                    var topLabels = d[0].dataLabels
-                        .filter((dataLabel) => dataLabel.value >= d[0].median) // Higher half of data labels
-                        .sort((dataLabel1, dataLabel2) => dataLabel1.value - dataLabel2.value); // Sort: median index 0
-                    var lowerLabels = d[0].dataLabels
-                        .filter((dataLabel) => dataLabel.value <= d[0].median) // Lower half of data labels
-                        .sort((dataLabel1, dataLabel2) => dataLabel2.value - dataLabel1.value); // Sort: median index 0
-                    var x = xScale(d[0].category + 0.77)
-
-                    topLabels[0].y = yScale(d[0].median) - 4;
-                    topLabels[0].x = xScale(d[0].category + 0.77);
-                    lowerLabels[0].y = yScale(d[0].median) - 4;
-                    lowerLabels[0].x = xScale(d[0].category + 0.77);
-
-                    var adjustment = 0;
-
-                    for (var i = 1; i < topLabels.length; i++) {
-                        topLabels[i].y = yScale(topLabels[i].value) - 4;
-                        topLabels[i].x = x;
-                        var diff = Math.abs((topLabels[i].y + adjustment) - (topLabels[i - 1].y));
-                        if (diff < 10) {
-                            adjustment += (10 - diff);
-                        } else {
-                            adjustment = 0;
-                        }
-                        topLabels[i].y += adjustment;
+            var outliers = svg.selectAll("circle.outlier");
+            // Add Power BI tooltip info   
+            TooltipManager.addTooltip(outliers,(tooltipEvent: TooltipEvent) => {
+                var displayName = tooltipEvent.context.parentNode.attributes["data"].value;
+                return [
+                    {
+                        displayName: displayName,
+                        value: formatter.format(tooltipEvent.data),
                     }
-                    adjustment = 0;
-                    for (var i = 1; i < lowerLabels.length; i++) {
-                        lowerLabels[i].y = yScale(lowerLabels[i].value) - 4;
-                        lowerLabels[i].x = x;
-                        var diff = Math.abs((lowerLabels[i].y + adjustment) - lowerLabels[i - 1].y);
-                        if (diff < 10) {
-                            adjustment -= (10 - diff);
-                        } else {
-                            adjustment = 0;
-                        }
-                        lowerLabels[i].y += adjustment;
-                    }
-                    var dataLabels = lowerLabels.concat(topLabels.filter((dataLabel) => dataLabel.value > d[0].median)).filter((dataLabel) => dataLabel.x > 0);
-                    return dataLabels.map((dataPoint) => {
-                        return dataPoint;
-                    });
+                ];
+            }, true);
 
+            var datapoints = svg.selectAll("circle.datapoint");
+            // Add Power BI tooltip info   
+            TooltipManager.addTooltip(datapoints,(tooltipEvent: TooltipEvent) => {
+                var displayName = tooltipEvent.context.parentNode.attributes["data"].value;
+                return [
+                    {
+                        displayName: displayName,
+                        value: formatter.format(tooltipEvent.data),
+                    }
+                ];
+            }, true);
+
+            function addOrd(n) {
+                var ords = [, 'st', 'nd', 'rd'];
+                var m = n % 100;
+                return n + ((m > 10 && m < 14) ? 'th' : ords[m % 10] || 'th');
+            }
+
+            var box = svg.selectAll("rect.box");
+            TooltipManager.addTooltip(box,(tooltipEvent: TooltipEvent) => {
+
+                return [
+                    {
+                        displayName: addOrd(q2quantile * 100) + " quantile",
+                        value: formatter.format(tooltipEvent.data[2]),
+                    },
+                    {
+                        displayName: "median",
+                        value: formatter.format(tooltipEvent.data[1]),
+                    },
+                    {
+                        displayName: addOrd(q1quantile * 100) + " quantile",
+                        value: formatter.format(tooltipEvent.data[0]),
+                    }
+                ];
+            }, true);
+
+            var meanPoint = svg.selectAll("circle.mean");
+            // meanPoint.text((data => {
+            //     if (valueFormat == undefined) {
+            //         valueFormat = "0";
+            //     }
+            //     var txt = visuals.valueFormatter.create({ format: valueFormat }).format(data);
+            //     return txt;
+            // }));
+            // Add Power BI tooltip info   
+            TooltipManager.addTooltip(meanPoint,(tooltipEvent: TooltipEvent) => {
+                return [
+                    {
+                        displayName: 'Mean',
+                        value: valueFormatter.create({ format: valueFormat }).format(tooltipEvent.data),
+                    }
+                ];
+            }, true);
+
+            var whiskerTick = svg.selectAll("text.whisker");
+            
+            
+            // Add Power BI tooltip info   
+            TooltipManager.addTooltip(whiskerTick,(tooltipEvent: TooltipEvent) => {
+                var quartileString = '';
+                if (tooltipEvent.index % 2 === 0) {
+                    quartileString = addOrd(lowWhiskerQuantile * 100);
+                } else {
+                    quartileString = addOrd(highWhiskerQuantile * 100);
                 }
-                return [];
+                return [
+                    {
+                        displayName: quartileString + " quantile",
+                        value: valueFormatter.create({ format: valueFormat }).format(tooltipEvent.data),
+                    }
+                ];
+            }, true);
+
+            var whiskerTick = svg.selectAll("line.whisker");
+          
+            // Add Power BI tooltip info   
+            TooltipManager.addTooltip(whiskerTick,(tooltipEvent: TooltipEvent) => {
+                var quartileString = '';
+                if (tooltipEvent.index % 2 === 0) {
+                    quartileString = addOrd(lowWhiskerQuantile * 100);
+                } else {
+                    quartileString = addOrd(highWhiskerQuantile * 100);
+                }
+                return [
+                    {
+                        displayName: quartileString + " quantile",
+                        value: valueFormatter.create({ format: valueFormat }).format(tooltipEvent.data),
+                    }
+                ];
+            }, true);
+         
+            // draw y axis
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(yAxis)
+                .append("text") // and text1
+                .attr("transform", "rotate(-90)")
+                .attr("y", -60)
+                .attr("x", -1 * (h + margin.top + margin.bottom) / 2)
+                .attr("dy", ".71em")
+                .style("text-anchor", "end")
+                .style("font-size", "16px")
+                .text(plotData.YAxisTitle);
+
+            // draw x axis
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", "translate(0," + (h + margin.top + 10) + ")")
+                .call(xAxis)
+                .selectAll("text")
+                .style("text-anchor", "middle")
+                .attr("transform", function (d) {
+                //return "rotate(45)";
             });
 
-            dataLabels
-                .enter()
-                .append("text")
-                .classed(BoxWhiskerChart.ChartDataLabel.class, true);
-
-            var y0 = this.viewport.height + this.AxisSizeX;
-
-            dataLabels
-                .attr("transform", dataLabel => `translate(0 ${y0}) scale(1, -1)`)
-                .transition()
-                .duration(duration)
-                .text(dataLabel => valueFormatter.format(dataLabel.value, this.format, true))
-                .attr("x", dataLabel => dataLabel.x)
-                .attr("y", dataLabel => y0 - dataLabel.y)
-                .attr("fill", "black");
-
-            dataLabels.exit().remove();
-
-            TooltipManager.addTooltip(quartile, (tooltipEvent: TooltipEvent) => {
-                return tooltipEvent.data[0].tooltipInfo;
-            }, true);
-
-            TooltipManager.addTooltip(median, (tooltipEvent: TooltipEvent) => {
-                return tooltipEvent.data[0].tooltipInfo;
-            }, true);
-
-            TooltipManager.addTooltip(average, (tooltipEvent: TooltipEvent) => {
-                return tooltipEvent.data[0].tooltipInfo;
-            }, true);
-
-            TooltipManager.addTooltip(outliers, (tooltipEvent: TooltipEvent) => {
-                return [{
-                    displayName: "Outlier value",
-                    value: tooltipEvent.data[0].value,
-                }]
-            }, true);
-
-            selection.exit().remove();
+            // draw goal line if goal is set
+            if (plotData.Goal && plotData.Goal !== 0) {
+                svg.append("g")
+                    .attr("class", "goal")
+                    .append("line")             // text label for the x axis
+                    .attr("x1", 0)
+                    .attr("y1", y(plotData.Goal))
+                    .attr("x2", w)
+                    .attr("y2", y(plotData.Goal));
+            }
+            chart.duration(1000);
         }
 
-        public static getValueArray(nodes: DataViewTreeNode, index: number): Array<number> {
-            var rArray: Array<number> = [];
+        /**
+         * The function calculates the mapping for data points to screen pixels for the boxes and the y axes.
+         * The scaling function is really simple, it uses the median of all median values and finds the ratio
+         * between that and the maximum value. This ratio is used to determine how much area is going to be used
+         * to draw up to the median. If the raio is less than 20%, 20% is used
+         * The data is partitioned into three domains ( min -> median of medians -> max)
+         * The range is partitioned into three as well (y-axes is inverted) ( height, height - (height * scale), 0)
+         * 
+         */
+        public createPlotAndAxesScales(plotData: IBoxWhiskerPlotData, height: number, topMargin: number) {
+            var min = plotData.Goal != null ? plotData.Goal : Infinity,
+                max = plotData.Goal != null ? plotData.Goal : -Infinity,
+                highWhisker = plotData.PlotData[0].HighWhisker;
+            var data = plotData.PlotData;
+            var medians = [];
 
-            if (nodes.children == null) {
-                if (nodes.values[index].value != null) {
-                    rArray.push(nodes.values[index].value);
-                }
-                return rArray
+            // TODO: replace this with d3.extent
+            for (var i in data) {
+                var rowMax = data[i].Maximum;
+                var rowMin = data[i].Minimum;
+                var rowWhisker = data[i].HighWhisker;
+
+                medians.push(data[i].Median);
+
+                if (rowMax > max) max = rowMax;
+                if (rowWhisker > highWhisker) highWhisker = rowWhisker;
+                if (rowMin < min) min = rowMin;
             }
-            else {
-                for (var i = 0; i < nodes.children.length; i++) {
-                    rArray = rArray.concat(this.getValueArray(nodes.children[i], index));
-                }
-                return rArray;
+
+            var medianofMedians = d3.median(medians.sort(d3.ascending));
+            var heightWithMargin = height + topMargin;
+            var scale = medianofMedians / max;
+            if (scale < 0.30) {
+                scale = 0.30;
             }
-        }
 
-        private getAxisOptions(min: number, max: number): BoxWhiskerAxisOptions {
-            var min1 = min == 0 ? 0 : min > 0 ? (min * .99) - ((max - min) / 100) : (min * 1.01) - ((max - min) / 100);
-            var max1 = max == 0 ? min == 0 ? 1 : 0 : max < 0 ? (max * .99) + ((max - min) / 100) : (max * 1.01) + ((max - min) / 100);
+            var top = Math.min(max, 0.5 * (highWhisker - medianofMedians) + highWhisker);
 
-            var p = Math.log(max1 - min1) / Math.log(10);
-            var f = Math.pow(10, p - Math.floor(p));
-
-            var scale = 0.2;
-
-            if (f <= 1.2) scale = 0.2
-            else if (f <= 2.5) scale = 0.2
-            else if (f <= 5) scale = 0.5
-            else if (f <= 10) scale = 1
-            else scale = 2
-
-            var tickSize = scale * Math.pow(10, Math.floor(p));
-            var maxValue = tickSize * (Math.floor(max1 / tickSize) + 1)
-            var minValue = tickSize * Math.floor(min1 / tickSize)
-            var ticks = ((maxValue - minValue) / tickSize) + 1
-
+            // Please make sure that the domain and ranges have the same number of elements in their arrays. Otherwise the 
+            // plot will be all wrong with much head scratching required. This sets up a polylinear scale 
+            // ( more at https://github.com/mbostock/d3/wiki/Quantitative-Scales#linear) which requires the same number of elements
+            // for ranges.
+            //return {
+            //    "boxDomain": [min, medianofMedians, max],
+            //    "boxRange": [height, height - (height * scale), 0],
+            //    "yAxesDomain": [min, medianofMedians, max],
+            //    "yAxesRange": [heightWithMargin, heightWithMargin - (heightWithMargin * scale), 0 + topMargin]
+            //};
             return {
-                tickSize: tickSize,
-                max: maxValue,
-                min: minValue,
-                ticks: ticks,
+                "boxDomain": [min, top],
+                "boxRange": [height, 0],
+                "yAxesDomain": [min, top],
+                "yAxesRange": [heightWithMargin, 0 + topMargin]
             };
         }
 
-        private getWhiskerType(dataView: DataView): BoxWhiskerTypeOptions.ChartType {
-            return DataViewObjects.getValue(this.dataView.metadata.objects, BoxWhiskerChart.properties.whiskerType, BoxWhiskerTypeOptions.ChartType.MinMax);
-        }
-
-        private getShowOutliers(dataView: DataView): boolean {
-            return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhiskerChart.properties.showOutliers, false);
-        }
-
-        private getShowMajorGridLines(dataView: DataView): boolean {
-            return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhiskerChart.properties.showMajorGridLines, true);
-        }
-
-        private getShowMinorGridLines(dataView: DataView): boolean {
-            return dataView.metadata && DataViewObjects.getValue(dataView.metadata.objects, BoxWhiskerChart.properties.showMinorGridLines, false);
-        }
-
-        private getDataLabelShow(dataView: DataView): boolean {
-            return DataViewObjects.getValue(this.dataView.metadata.objects, BoxWhiskerChart.properties.dataLabelShow, false);
-        }
-
-        private getLegendShow(dataView: DataView): boolean {
-            return DataViewObjects.getValue(this.dataView.metadata.objects, BoxWhiskerChart.properties.legendShow, true);
-        }
-
-        private getLegendShowTitle(dataView: DataView): boolean {
-            return DataViewObjects.getValue(this.dataView.metadata.objects, BoxWhiskerChart.properties.legendShowTitle, true);
-        }
-
-        private getLegendTitleText(dataView: DataView): string {
-            return DataViewObjects.getValue(dataView.metadata.objects, BoxWhiskerChart.properties.legendTitleText, this.data.legendData.title);
-        }
-
+        // This function retruns the values to be displayed in the property pane for each object.
+        // Usually it is a bind pass of what the property pane gave you, but sometimes you may want to do
+        // validation and return other values/defaults
         public enumerateObjectInstances(options: EnumerateVisualObjectInstancesOptions): VisualObjectInstance[] {
             var instances: VisualObjectInstance[] = [];
-
             switch (options.objectName) {
-                case "chartOptions":
-                    var chartOptions: VisualObjectInstance = {
-                        objectName: "chartOptions",
-                        displayName: "Chart Options",
+                case 'box':
+                    var box: VisualObjectInstance = {
+                        objectName: 'box',
+                        displayName: 'Box',
                         selector: null,
                         properties: {
-                            whisker: this.getWhiskerType(this.dataView),
-                            outliers: this.getShowOutliers(this.dataView),
+                            q1: this.getQ1(this.dataView),
+                            q2: this.getQ2(this.dataView),
+                            q3: this.getQ3(this.dataView),
+                            q4: this.getQ4(this.dataView),
+                            outlierFactor: this.getOutlierFactor(this.dataView),
+                            yTitle: this.getYTitle(this.dataView),
                         }
                     };
-                    instances.push(chartOptions);
+                    instances.push(box);
                     break;
-                case "dataPoint":
-                    var categories = this.dataView.categorical.values;
-                    for (var i = 0; i < categories.length; i++) {
-                        var dataPoint: VisualObjectInstance = {
-                            objectName: "dataPoint",
-                            displayName: this.data.dataPoints[i][0].label,
-                            selector: ColorHelper.normalizeSelector(this.data.dataPoints[i][0].identity.getSelector(), true),
-                            properties: {
-                                fill: { solid: { color: this.data.dataPoints[i][0].color } }
-                            }
-                        };
-                        instances.push(dataPoint);
-                    }
-                    break;
-                case "gridLines":
-                    var gridLines: VisualObjectInstance = {
-                        objectName: "gridLines",
-                        displayName: "Grid lines",
+                case "series":
+                    var series: VisualObjectInstance = {
+                        objectName: "series",
+                        displayName: "Time Slot",
                         selector: null,
                         properties: {
-                            majorGrid: this.getShowMajorGridLines(this.dataView),
-                            minorGrid: this.getShowMinorGridLines(this.dataView),
+                            timebucket: this.getTimeBucket(this.dataView) ? this.getTimeBucket(this.dataView) : 60,
                         }
                     };
-                    instances.push(gridLines);
-                    break;
-                case "labels":
-                    var labels: VisualObjectInstance = {
-                        objectName: "labels",
-                        displayName: "Data labels",
-                        selector: null,
-                        properties: {
-                            show: this.getDataLabelShow(this.dataView),
-                        }
-                    };
-                    instances.push(labels);
-                    break;
-                case "legend":
-                    var legend: VisualObjectInstance = {
-                        objectName: "legend",
-                        displayName: "Legend",
-                        selector: null,
-                        properties: {
-                            show: this.getLegendShow(this.dataView),
-                            showTitle: this.getLegendShowTitle(this.dataView),
-                            titleText: this.getLegendTitleText(this.dataView)
-                        }
-                    };
-                    instances.push(legend);
+                    instances.push(series);
                     break;
             }
 
